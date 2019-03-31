@@ -11,34 +11,19 @@
 #include <zxing/BinaryBitmap.h>
 #include <zxing/MultiFormatReader.h>
 #include <zxing/multi/GenericMultipleBarcodeReader.h>
-#include <zxing/ReaderException.h>
+#include <zxing/NotFoundException.h>
 
 using namespace std;
 using namespace zxing;
 using namespace zxing::multi;
 
-static void log_error(const string &msg) {
-    static PyObject *logger = NULL;
-
-    if (logger == NULL) {
-        PyObject *logging = PyImport_ImportModuleNoBlock("logging");
-
-        if (logging == NULL) {
-            PyErr_SetString(PyExc_ImportError, "Could not import module 'logging'");
-
-            return;
-        }
-
-        logger = PyObject_CallMethod(logging, "getLogger", "O", PyUnicode_FromString("zxinglight"));
-    }
-
-    PyObject_CallMethod(logger, "error", "O", PyUnicode_FromString(msg.c_str()));
-}
+PyObject* PyExc_ZxingException = NULL;
 
 static vector<string> *_zxing_read_codes(
     char *image, int image_size, int width, int height,int barcode_type, bool try_harder,
     bool hybrid, bool multi
     ) {
+    vector<string> *codes = new vector<string>();
     try {
         ArrayRef<char> data = ArrayRef<char>(image, image_size);
 
@@ -78,24 +63,29 @@ static vector<string> *_zxing_read_codes(
             results = vector<Ref<Result> >(1, reader->decode(bitmap, hints));
         }
 
-        vector<string> *codes = new vector<string>();
 
         for (const Ref<Result> &result : results) {
             codes->push_back(result->getText()->getText());
         }
 
-        return codes;
-    } catch (const ReaderException &e) {
-        log_error((string) "zxing::ReaderException: " + e.what());
+    } catch (const NotFoundException &e) {
+        /* swallow this "error"; it will become None;
+           exceptions-as-returns is usually bad */
     } catch (const zxing::IllegalArgumentException &e) {
-        log_error((string) "zxing::IllegalArgumentException: " + e.what());
+        PyErr_SetString(PyExc_TypeError, e.what());
+        delete codes;
+        return NULL;
     } catch (const zxing::Exception &e) {
-        log_error((string) "zxing::Exception: " + e.what());
+        PyErr_SetString(PyExc_ZxingException, e.what());
+        delete codes;
+        return NULL;
     } catch (const std::exception &e) {
-        log_error((string) "std::exception: " + e.what());
+        PyErr_SetString(PyExc_Exception, e.what());
+        delete codes;
+        return NULL;
     }
 
-    return NULL;
+    return codes;
 }
 
 static PyObject* zxing_read_codes(PyObject *self, PyObject *args) {
@@ -144,5 +134,10 @@ static struct PyModuleDef zxinglight_moduledef = {
 };
 
 PyMODINIT_FUNC PyInit__zxinglight(void) {
+    PyExc_ZxingException = PyErr_NewException("_zxinglight.ZxingException", NULL, NULL);
+    if(PyExc_ZxingException == NULL) {
+      PyErr_SetString(PyExc_RuntimeError, "Unable to allocate ZxingException.");
+      return NULL;
+    }
     return PyModule_Create(&zxinglight_moduledef);
 }
