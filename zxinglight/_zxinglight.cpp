@@ -11,6 +11,7 @@
 #include <zxing/BinaryBitmap.h>
 #include <zxing/MultiFormatReader.h>
 #include <zxing/multi/GenericMultipleBarcodeReader.h>
+#include <zxing/ReaderException.h>
 #include <zxing/NotFoundException.h>
 
 using namespace std;
@@ -71,6 +72,14 @@ static vector<string> *_zxing_read_codes(
     } catch (const NotFoundException &e) {
         /* swallow this "error"; it will become None;
            exceptions-as-returns is usually bad */
+    } catch (const ReaderException &e) {
+        /* For qrcodes, https://github.com/glassechidna/zxing-cpp/ throws
+           this more general exception where NotFoundException should be.
+
+           To play nice with what most people have installed,
+           the handler for that exception is duplicated here.
+           There is a fork at https://github.com/kousu/zxing-cpp
+           which doesn't need this. */
     } catch (const zxing::IllegalArgumentException &e) {
         PyErr_SetString(PyExc_TypeError, e.what());
         delete codes;
